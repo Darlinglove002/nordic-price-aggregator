@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: prices
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prices}
+      POSTGRES_DB: prices
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-5442}:5432"   # local access only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prices -d prices"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mock-shop:
+    build: .
+    command: ["python", "-m", "mock_shop.server"]
+    environment:
+      MOCK_LATENCY_MS: ${MOCK_LATENCY_MS:-250}
+      MOCK_FAIL_RATE: ${MOCK_FAIL_RATE:-0.03}   # a few 503s so retry/backoff is visible
+      MOCK_EPOCH_SECONDS: ${MOCK_EPOCH_SECONDS:-0}
+    ports:
+      - "127.0.0.1:8099:8099"   # admin endpoint has no auth: never publish beyond localhost
+
+  app:
+    build: .
+    command: ["sh", "-c", "alembic upgrade head && python -m app.main"]
+    depends_on:
+      db:
+        condition: service_healthy
+      mock-shop:
+        condition: service_started
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://prices:${POSTGRES_PASSWORD:-prices}@db:5432/prices
+      MOCK_SHOP_URL: http://mock-shop:8099
+    restart: unless-stopped
+
+  # `docker compose --profile bench run --rm bench` : sync vs async on a clean, failure-free mock
+  mock-shop-bench:
+    profiles: ["bench"]
+    build: .
+    command: ["python", "-m", "mock_shop.server"]
+    environment:
+      MOCK_LATENCY_MS: 250
+      MOCK_FAIL_RATE: 0
+
+  bench:
+    profiles: ["bench"]
+    build: .
+    command: ["python", "-m", "benchmarks.bench", "--url", "http://mock-shop-bench:8099"]
+    depends_on:
+      - mock-shop-bench
+
+volumes:
+  pgdata:
