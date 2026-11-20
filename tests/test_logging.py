@@ -123,3 +123,17 @@ async def test_one_off_sync_prints_the_report_to_stdout_and_keeps_it_out_of_the_
     assert "Sync #1: ok" in out and "Baseline stored" in out
     assert "Baseline stored" not in caplog.text, "the report is output, not a log record"
     assert "sync #1 ok" in caplog.text, "the diagnostics are still logged"
+
+
+def test_report_is_written_as_utf8_even_when_stdout_defaults_to_cp1252(monkeypatch):
+    """Regression: `python -m app.main sync > report.txt` crashed on Windows with a
+    UnicodeEncodeError on the checkmark in the sync summary."""
+    import io
+    import sys
+
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252"))
+    main._utf8_stdout()
+    sys.stdout.write("✓ fjordtech: 554 ▼ Mouse Anker — DanskGear ø\n")
+    sys.stdout.flush()
+    assert raw.getvalue().decode("utf-8").startswith("✓ fjordtech")

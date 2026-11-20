@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import logging
 import re
+import sys
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -30,6 +31,14 @@ log = logging.getLogger("app")
 
 def _plain(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
+
+
+def _utf8_stdout() -> None:
+    """The report contains checkmarks, arrows and accented product names. A redirected stdout on
+    Windows defaults to the ANSI code page, where print() raises UnicodeEncodeError."""
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8")
 
 
 async def _build_context(settings: Settings) -> tuple[AppContext, AsyncEngine]:
@@ -100,6 +109,7 @@ def main() -> None:
 
     settings = get_settings()
     if args.command == "sync":
+        _utf8_stdout()
         raise SystemExit(asyncio.run(run_once(settings)))
     asyncio.run(run_service(settings))
 
