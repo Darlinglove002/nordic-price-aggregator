@@ -3,17 +3,23 @@
 [![CI](https://github.com/Darlinglove002/nordic-price-aggregator/actions/workflows/ci.yml/badge.svg)](https://github.com/Darlinglove002/nordic-price-aggregator/actions/workflows/ci.yml)
 
 ```mermaid
-flowchart TB
-    Cron["APScheduler<br/>every N min or cron"] --> Ctx
-    Bot["Telegram bot<br/>/sync, /report, /alerts"] --> Ctx
-    Cli["CLI: python -m app.main sync"] --> Ctx
-    Ctx["AppContext<br/>one sync at a time (asyncio.Lock)"] --> Scrape
+flowchart LR
+    subgraph triggers["Triggers"]
+        direction TB
+        Cron["APScheduler<br/>every N min or cron"]
+        Bot["Telegram bot<br/>/sync, /report, /alerts"]
+        Cli["CLI<br/>python -m app.main sync"]
+    end
 
-    Shops["Web shops<br/>4 mock shops (SEK, NOK, DKK, EUR)<br/>books.toscrape.com (GBP)"] --> Scrape["Async scrapers: httpx + BeautifulSoup<br/>page 1 gives the page count, the rest run concurrently<br/>retry with backoff on timeouts, 429 and 5xx"]
-    Scrape --> Norm["Normalise<br/>price text to Decimal, currency to EUR,<br/>name to a canonical key"]
-    Norm --> PG[("PostgreSQL 16<br/>sources, products,<br/>price_snapshots (append-only), sync_runs")]
-    PG --> Report["Report: latest snapshot vs the previous one<br/>price drops, out of stock, back in stock"]
-    Report --> Out["Telegram digest or stdout"]
+    Shops["Web shops<br/>4 mock shops: SEK, NOK, DKK, EUR<br/>books.toscrape.com: GBP"]
+
+    triggers --> Ctx["AppContext<br/>one sync at a time"]
+    Ctx --> Scrape["Async scrapers<br/>httpx + BeautifulSoup<br/>retry with backoff"]
+    Shops --> Scrape
+    Scrape --> Norm["Normalise<br/>Decimal prices, EUR,<br/>canonical product name"]
+    Norm --> PG[("PostgreSQL 16<br/>append-only<br/>price_snapshots")]
+    PG --> Report["Report<br/>drops, out of stock,<br/>back in stock"]
+    Report --> Out["Telegram digest<br/>or stdout"]
 ```
 
 Async scraper that collects prices and stock levels from several web shops on a schedule
