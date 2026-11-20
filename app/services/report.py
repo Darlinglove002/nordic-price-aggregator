@@ -10,6 +10,7 @@ from decimal import Decimal
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import Label
 
 from app.db import crud
 from app.db.models import PriceSnapshot, Product, Source
@@ -40,7 +41,7 @@ class Report:
     back_in_stock: list[Change] = field(default_factory=list)
 
 
-def _rank_per_product():
+def _rank_per_product() -> Label[int]:
     """1 = newest snapshot of a product, 2 = the one before it."""
     return (
         func.row_number()
