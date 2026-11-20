@@ -21,6 +21,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "aiosqlite>=0.20",
     "ruff>=0.5",
+    "mypy>=1.10",
 ]
 
 [tool.setuptools.packages.find]
@@ -37,5 +38,24 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+# T20: no print() in package code (use logging). The one-off `sync` command prints its report to
+# stdout on purpose; those two calls carry an inline noqa. The benchmark prints its table.
+select = ["E", "F", "I", "B", "UP", "T20"]
 ignore = ["E501"]  # line wrapping is owned by `ruff format`
+
+[tool.ruff.lint.per-file-ignores]
+"benchmarks/*" = ["T201"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["app", "mock_shop"]
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# APScheduler 3.x ships no type information.
+[[tool.mypy.overrides]]
+module = ["apscheduler.*"]
+ignore_missing_imports = true

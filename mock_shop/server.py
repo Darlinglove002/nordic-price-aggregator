@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+from collections.abc import AsyncIterator
 from functools import lru_cache
 
 from aiohttp import web
@@ -60,7 +61,7 @@ async def state(request: web.Request) -> web.Response:
     return web.json_response({"epoch": request.app["epoch"], "products": len(PRODUCTS)})
 
 
-async def _auto_advance(app: web.Application) -> None:
+async def _auto_advance(app: web.Application) -> AsyncIterator[None]:
     async def loop() -> None:
         while True:
             await asyncio.sleep(EPOCH_SECONDS)

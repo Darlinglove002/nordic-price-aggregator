@@ -33,6 +33,9 @@ jobs:
       - name: Format check (ruff)
         run: ruff format --check .
 
+      - name: Type check (mypy, config in pyproject.toml)
+        run: mypy
+
       # All tests are offline: HTML fixtures, httpx.MockTransport, SQLite in a temp file.
       - name: Tests (pytest)
         run: pytest -q

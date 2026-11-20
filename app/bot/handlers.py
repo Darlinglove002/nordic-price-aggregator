@@ -66,11 +66,13 @@ def build_router(ctx: AppContext) -> Router:
         if not is_allowed(message):
             return await deny(message)
         if ctx.sync_running:
-            return await message.answer("A sync is already running, try /report in a minute.")
+            await message.answer("A sync is already running, try /report in a minute.")
+            return
         await message.answer("Sync started…")
         summary = await ctx.sync("manual")
         if summary is None:  # lost a race with another trigger
-            return await message.answer("A sync is already running.")
+            await message.answer("A sync is already running.")
+            return
         await message.answer(format_summary(summary))
         if summary.status != "failed":
             for text in await ctx.report_messages():

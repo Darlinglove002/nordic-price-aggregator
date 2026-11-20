@@ -15,6 +15,8 @@ import asyncio
 import logging
 import re
 
+from sqlalchemy.ext.asyncio import AsyncEngine
+
 from app.bot.handlers import build_router, format_summary, make_bot
 from app.config import Settings, get_settings
 from app.context import AppContext
@@ -30,7 +32,7 @@ def _plain(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
 
 
-async def _build_context(settings: Settings) -> tuple[AppContext, object]:
+async def _build_context(settings: Settings) -> tuple[AppContext, AsyncEngine]:
     engine = make_engine(settings.database_url)
     client = build_client(settings)
     ctx = AppContext(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 from urllib.parse import urljoin
 
 import httpx
@@ -66,7 +67,7 @@ class MockShopScraper(PaginatedScraper):
         slug: str,
         name: str,
         currency: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         super().__init__(client, **kwargs)
         self.slug, self.name, self.currency = slug, name, currency

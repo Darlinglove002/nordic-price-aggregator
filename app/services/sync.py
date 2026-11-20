@@ -143,6 +143,8 @@ async def run_sync(
 
     async with session_factory() as session, session.begin():
         db_run = await session.get(SyncRun, run.id)
+        if db_run is None:  # the row was inserted at the start of this very run
+            raise RuntimeError(f"sync run {run.id} disappeared before it was finalised")
         db_run.finished_at = utcnow()
         db_run.status = status
         db_run.items_saved = saved_total
