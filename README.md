@@ -2,6 +2,20 @@
 
 [![CI](https://github.com/Darlinglove002/nordic-price-aggregator/actions/workflows/ci.yml/badge.svg)](https://github.com/Darlinglove002/nordic-price-aggregator/actions/workflows/ci.yml)
 
+```mermaid
+flowchart TB
+    Cron["APScheduler<br/>every N min or cron"] --> Ctx
+    Bot["Telegram bot<br/>/sync, /report, /alerts"] --> Ctx
+    Cli["CLI: python -m app.main sync"] --> Ctx
+    Ctx["AppContext<br/>one sync at a time (asyncio.Lock)"] --> Scrape
+
+    Shops["Web shops<br/>4 mock shops (SEK, NOK, DKK, EUR)<br/>books.toscrape.com (GBP)"] --> Scrape["Async scrapers: httpx + BeautifulSoup<br/>page 1 gives the page count, the rest run concurrently<br/>retry with backoff on timeouts, 429 and 5xx"]
+    Scrape --> Norm["Normalise<br/>price text to Decimal, currency to EUR,<br/>name to a canonical key"]
+    Norm --> PG[("PostgreSQL 16<br/>sources, products,<br/>price_snapshots (append-only), sync_runs")]
+    PG --> Report["Report: latest snapshot vs the previous one<br/>price drops, out of stock, back in stock"]
+    Report --> Out["Telegram digest or stdout"]
+```
+
 Async scraper that collects prices and stock levels from several web shops on a schedule
 (or on a Telegram command), normalises currencies and product names, keeps the full price
 history in PostgreSQL, and sends a digest to Telegram: **what got cheaper, what ran out,
@@ -9,30 +23,6 @@ what is back in stock.**
 
 **Stack:** Python 3.12 · httpx · BeautifulSoup 4 · SQLAlchemy 2 (async) · PostgreSQL 16 ·
 Alembic · aiogram 3 · APScheduler · Docker Compose
-
-```
-┌─────────────┐  every N min / cron        ┌───────────────────────────┐
-│ APScheduler │ ─────────────┐             │ Telegram: /sync /report   │
-└─────────────┘              ▼             │           /alerts         │
-                      ┌─────────────┐ ◀────┴───────────────────────────┘
-                      │ AppContext  │   one sync at a time (asyncio.Lock)
-                      └──────┬──────┘
-          asyncio.gather     │  per source: page 1 → page count → rest concurrently
-   ┌───────────┬─────────────┼─────────────┬──────────────┐
-   ▼           ▼             ▼             ▼              ▼
- FjordTech   Nordvik     DanskGear     Suomi Shop   books.toscrape.com
-  (SEK)       (NOK)        (DKK)         (EUR)          (GBP, live)
-   └───────────┴──── httpx + retry/backoff + BeautifulSoup ──┘
-                             │  ScrapedItem
-                             ▼
-        normalise: price text → Decimal · currency → EUR · name → canonical key
-                             │
-                             ▼
-      PostgreSQL: sources · products · price_snapshots (append-only) · sync_runs
-                             │
-                             ▼
-        report: latest snapshot vs. previous → drops / out of stock / back in stock
-```
 
 ## Quick start
 
@@ -50,18 +40,6 @@ curl -X POST http://localhost:8099/_admin/advance
 docker compose exec app python -m app.main sync
 ```
 
-Example output of the second run (real, trimmed):
-
-```
-Sync #2: ok — 3146 items in 5.7s
-✓ fjordtech: 554   ✓ nordvik: 529   ✓ danskgear: 543   ✓ suomishop: 520   ✓ books-toscrape: 1000
-
-Price drops (388)
-▼ Mouse Anker MX-2708XM (White) — DanskGear
-   845.00 → 634.00 DKK (−25%, ≈ €84.82)
-…
-```
-
 ### Telegram commands
 
 | Command   | What it does                                                          |
@@ -72,6 +50,45 @@ Price drops (388)
 
 The bot is **deny-by-default**: only chat ids listed in `ALLOWED_CHAT_IDS` get an answer
 (an unknown chat is told its own id so you can add it).
+
+## Example Request & Response
+
+The one-off command runs a full sync and prints the digest. Diagnostics go to stderr and the report to stdout, so `python -m app.main sync > report.txt` captures the report and nothing else. This is a real run against the four mock shops and books.toscrape.com, made after advancing the mock shops once (`curl -X POST http://localhost:8099/_admin/advance`) so that there are changes to report:
+
+```bash
+python -m app.main sync          # in the compose stack: docker compose exec app python -m app.main sync
+```
+
+stderr, the log (sources are scraped concurrently and stored one by one, so the first line per source appears only after the slowest source has finished):
+
+```text
+2026-11-20 22:43:07,578 INFO    app.services.sync: sync #3 started (manual), 5 sources
+2026-11-20 22:43:15,086 INFO    app.services.sync: fjordtech: stored 554 items (28 pages, 0 failed)
+2026-11-20 22:43:15,153 INFO    app.services.sync: nordvik: stored 529 items (27 pages, 0 failed)
+…
+2026-11-20 22:43:15,422 INFO    app.services.sync: sync #3 ok: 3146 items in 7.9s
+```
+
+stdout, the report (trimmed after two of 388 drops):
+
+```text
+Sync #3: ok — 3146 items in 7.9s
+✓ fjordtech: 554
+✓ nordvik: 529
+✓ danskgear: 543
+✓ suomishop: 520
+✓ books-toscrape: 1000
+Price report · run #3 · 3146 products tracked
+
+Price drops (388)
+▼ Mouse Anker MX-2708XM (White) — DanskGear
+   845.00 → 634.00 DKK (−25%, ≈ €84.82)
+▼ Xiaomi MX-6434X Mouse, Red — FjordTech
+   1086.00 → 816.00 SEK (−25%, ≈ €72.78)
+…
+```
+
+The same command right before the shops changed (run #2) prints `No price drops or stock changes.` after the same per-source lines. The wall-clock time above includes the real site and a Windows host, so it is not comparable with the sync-vs-asyncio benchmark below, which uses only the mock shops.
 
 ## Data sources
 
@@ -134,17 +151,18 @@ pip install -e ".[dev]"
 pytest
 ```
 
-45 offline tests (no network, SQLite in a temp file): price-format parsing, name
+53 offline tests (no network, SQLite in a temp file): price-format parsing, name
 normalisation, HTML parsers against fixtures (including malformed cards and layout change),
 retry/backoff via `httpx.MockTransport`, the end-to-end sync → report flow including the
-failure cases listed above, and the bot's deny-by-default access control (driven with fake
-Telegram updates). Migrations are additionally verified against real PostgreSQL
-(`alembic check` reports no drift between models and migration).
+failure cases listed above, the bot's deny-by-default access control (driven with fake
+Telegram updates), and the logging and stdout/stderr split of the one-off command. Migrations are additionally verified against real PostgreSQL
+(`alembic check` reports no drift between models and migration). CI runs ruff, mypy and the
+suite on Python 3.11 and 3.12.
 
 ## Configuration
 
 See [`.env.example`](.env.example). Highlights: `SYNC_CRON` / `SYNC_INTERVAL_MINUTES`,
-`SCRAPE_CONCURRENCY`, `HTTP_RETRIES`, `MIN_DROP_PERCENT` (default 1 %), `FX_REFRESH`.
+`SCRAPE_CONCURRENCY`, `HTTP_RETRIES`, `MIN_DROP_PERCENT` (default 1 %), `FX_REFRESH`, `LOG_LEVEL`.
 
 ## Limitations
 
