@@ -103,6 +103,7 @@ async def run_sync(
     started = time.perf_counter()
     async with session_factory() as session, session.begin():
         run = await crud.start_run(session, trigger)
+    log.info("sync #%d started (%s), %d sources", run.id, trigger, len(scrapers))
 
     results = await asyncio.gather(*(s.scrape() for s in scrapers), return_exceptions=True)
 
@@ -125,6 +126,13 @@ async def run_sync(
             outcome.error = f"storage error: {type(exc).__name__}"
             log.exception("%s: could not store results", scraper.slug)
             continue
+        log.info(
+            "%s: stored %d items (%d pages, %d failed)",
+            scraper.slug,
+            outcome.items,
+            outcome.pages_total,
+            outcome.pages_failed,
+        )
         saved_total += outcome.items
 
     problems = sum(1 for o in outcomes if o.error) + sum(o.pages_failed for o in outcomes)

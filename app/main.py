@@ -2,6 +2,10 @@
 
 python -m app.main          run the scheduler (+ Telegram bot if a token is configured)
 python -m app.main sync     one-off sync, print the report to stdout, exit
+
+Diagnostics go through logging (stderr). The one-off sync's report is the command's actual
+output, so it is printed to stdout: `app.main sync > report.txt` captures the report and
+nothing else.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ from app.bot.handlers import build_router, format_summary, make_bot
 from app.config import Settings, get_settings
 from app.context import AppContext
 from app.db.session import make_engine, make_session_factory
+from app.logging_config import configure_logging
 from app.scheduler import bot_notifier, build_scheduler
 from app.scrapers import build_client, build_scrapers
 
@@ -42,9 +47,10 @@ async def run_once(settings: Settings) -> int:
     try:
         summary = await ctx.sync("manual")
         assert summary is not None
-        print(_plain(format_summary(summary)))
+        # The report is this command's output, not a diagnostic: stdout, not the log.
+        print(_plain(format_summary(summary)))  # noqa: T201
         for text in await ctx.report_messages():
-            print(_plain(text))
+            print(_plain(text))  # noqa: T201
         return 0 if summary.status != "failed" else 1
     finally:
         await ctx.client.aclose()
@@ -88,11 +94,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="nordic-price-aggregator")
     parser.add_argument("command", nargs="?", choices=["run", "sync"], default="run")
     args = parser.parse_args()
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
-    # The bot token must never end up in logs: httpx logs full URLs at INFO.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    configure_logging()  # also keeps httpx quiet: the bot token must never end up in logs
 
     settings = get_settings()
     if args.command == "sync":
