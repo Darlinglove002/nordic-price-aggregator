@@ -12,3 +12,7 @@ dist/
 .env.*
 !.env.example
 *.db
+
+# local AI tooling files: never part of the repository
+CLAUDE.md
+.claude/
