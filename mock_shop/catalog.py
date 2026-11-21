@@ -106,9 +106,9 @@ def price_local(shop: Shop, p: Product, epoch: int) -> float:
         rng = random.Random(f"price:{shop.slug}:{p.index}:{epoch}")
         roll = rng.random()
         if roll < 0.20:
-            price *= 1 - rng.uniform(0.05, 0.25)  # sale
+            price *= 1 - rng.uniform(0.05, 0.25)
         elif roll < 0.30:
-            price *= 1 + rng.uniform(0.03, 0.12)  # increase
+            price *= 1 + rng.uniform(0.03, 0.12)
     return round(price) if shop.currency != "EUR" else round(price, 2)
 
 
